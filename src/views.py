@@ -16,6 +16,12 @@ WRITE_FILE = str(Path(Path(__file__).parent.parent, "data", "views.json"))
 result = {}
 
 
+def get_data(path) -> pd.DataFrame:
+    operations = pd.read_excel(path, date_format="%d.%m.%Y %H:%M:%S", parse_dates=["Дата операции"]).dropna(
+        subset=['Номер карты'])
+    return operations
+
+
 def get_greeting(date: Any) -> str:
     """
     Приветствие
@@ -40,13 +46,13 @@ def get_filtered_operations(path: str) -> Any:
     :return: DataFrame всех операций
     """
     try:
-        operations = pd.read_excel(path).dropna(subset=['Номер карты'])
+        operations = get_data(path)
         cards = [{"last_digits": number_card, "total_spent": 0, "cashback": 0} for number_card in
                  operations['Номер карты'].unique()]
         for card in cards:
             filtered_operations = operations.loc[
                 (operations["Номер карты"] == card["last_digits"]) & (operations["Статус"] == "OK") & (
-                    operations['Сумма операции'] <= 0)]
+                        operations['Сумма операции'] <= 0)]
             card["total_spent"] = round(abs(filtered_operations['Сумма операции'].sum()), 2)
             card["cashback"] = round(card["total_spent"] / 100)
         return cards
@@ -60,9 +66,9 @@ def get_top_operations(path: str) -> Any:
     :param path: путь чтения файла
     :return: Словари с информацией
     """
-    operations = pd.read_excel(path).dropna(subset=['Номер карты'])
+    operations = get_data(path)
     filtered_operations = operations.loc[(operations["Статус"] == "OK") & (
-        operations['Сумма операции'] <= 0)]
+            operations['Сумма операции'] <= 0)]
     top_max_operations = [{"date": operation["Дата операции"],
                            "amount": abs(operation["Сумма операции"]),
                            "category": operation["Категория"],
@@ -86,33 +92,29 @@ def get_stock_price(date: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any
         url = (f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={stock}&outputsize=compact'
                f'&apikey={API_KEY}')
         response = requests.get(url).json()
-        print(response)
         stock_prices.append({"stock": response["Meta Data"]["2. Symbol"],
                              "price": response["Time Series (Daily)"][yesterday]["4. close"]})
     for currency in currencies:
         url = (f'https://www.alphavantage.co/query?function=FX_DAILY&from_symbol={currency}'
                f'&to_symbol=RUB&apikey={API_KEY}')
         response = requests.get(url).json()
-        print(response)
-        currency_rates.append({"currency": response["Meta Data"]["2. Symbol"],
+        currency_rates.append({"currency": response["Meta Data"]["2. From Symbol"],
                                "rate": response["Time Series FX (Daily)"][yesterday]["4. close"]
                                })
     return currency_rates, stock_prices
 
 
-def get_building_response() -> dict[str, str]:
+def get_building_response(date: str) -> dict[str, str]:
     """
     Сборка всего в единый json ответ
     :return: Словарь с необходимыми данными
     """
-    result["greeting"] = get_greeting(datetime.now())
+    date_obj = datetime.strptime(date, "%Y-%m-%d %H:%M:%S")
+    result["greeting"] = get_greeting(date_obj)
     result["cards"] = get_filtered_operations(DATA_PATH)
     result["top_transactions"] = get_top_operations(DATA_PATH)
-    quotes = get_stock_price(datetime.now())
+    quotes = get_stock_price(date_obj)
     result["currency_rates"], result["stock_prices"] = quotes[0], quotes[1]
     with open(WRITE_FILE, 'w') as fp:
         json.dump(result, fp, ensure_ascii=False)
     return result
-
-
-print(get_building_response())
